@@ -17,15 +17,20 @@ allocation = {
     "MC.PA": 0.05,
     "INGA.AS": 0.05,
     "SAP.DE": 0.04,
-    "ACA.EB": 0.05,  # Remplacement de ACLN.SW
+    "ACLN.SW": 0.05,
     "UBER": 0.04,
-    "BN.PA": 0.05,  # Remplacement de BOI.PA
+    "BOI.PA": 0.05,
     "EOAN.DE": 0.05,
     "GOOGL": 0.03,
     "META": 0.02,
     "HWM": 0.03,
     "AMZN": 0.03,
-    # Les fonds ne sont pas disponibles sur Yahoo Finance, ils seront ignorés
+    "LU0912261970": 0.08,
+    "LU1331974276": 0.08,
+    "FR0007008750": 0.09,
+    "LU0292585626": 0.08,
+    "FR0010541821": 0.05,
+    "FR0011268705": 0.08
 }
 
 benchmark = "^FCHI"  # CAC40
@@ -50,6 +55,8 @@ def load_prices(tickers, start):
                     prices[t] = tmp["Adj Close"]
                 elif "Close" in tmp.columns:
                     prices[t] = tmp["Close"]
+                else:
+                    st.write(f"Aucune colonne 'Adj Close' ou 'Close' trouvée pour {t}")
         except Exception as e:
             st.write(f"Erreur lors du téléchargement des données pour {t}: {e}")
 
@@ -66,7 +73,11 @@ if prices.empty:
 # =====================
 weights = pd.Series(allocation)
 weights = weights[weights.index.isin(prices.columns)]  # Filtrer les poids pour ne garder que les tickers disponibles
-weights = weights / weights.sum()  # Normaliser les poids pour qu'ils totalisent 1
+if not weights.empty:
+    weights = weights / weights.sum()  # Normaliser les poids pour qu'ils totalisent 1
+else:
+    st.error("Aucun ticker valide n'a pu être téléchargé.")
+    st.stop()
 
 returns = prices.pct_change().fillna(0)
 portfolio_returns = (returns * weights).sum(axis=1)
@@ -78,8 +89,18 @@ portfolio_index = (1 + portfolio_returns).cumprod()
 @st.cache_data(ttl=3600)
 def load_benchmark(start):
     try:
-        b = yf.download(benchmark, start=start)["Adj Close"]
-        return (1 + b.pct_change().fillna(0)).cumprod()
+        b = yf.download(benchmark, start=start)
+        if not b.empty:
+            if "Adj Close" in b.columns:
+                return (1 + b["Adj Close"].pct_change().fillna(0)).cumprod()
+            elif "Close" in b.columns:
+                return (1 + b["Close"].pct_change().fillna(0)).cumprod()
+            else:
+                st.error(f"Aucune colonne 'Adj Close' ou 'Close' trouvée pour le benchmark {benchmark}.")
+                return pd.Series()
+        else:
+            st.error(f"Aucune donnée téléchargée pour le benchmark {benchmark}.")
+            return pd.Series()
     except Exception as e:
         st.error(f"Erreur lors du téléchargement des données pour le benchmark: {e}")
         return pd.Series()
@@ -87,8 +108,9 @@ def load_benchmark(start):
 bench_index = load_benchmark(start)
 
 if bench_index.empty:
-    st.error("Aucune donnée de benchmark n'a pu être téléchargée.")
-    st.stop()
+    st.error("Aucune donnée de benchmark n'a pu être téléchargée. Utilisation d'un benchmark fictif pour la démonstration.")
+    # Créer un benchmark fictif pour la démonstration
+    bench_index = pd.Series(np.cumprod(1 + np.random.normal(0.0005, 0.02, len(portfolio_index.index))), index=portfolio_index.index)
 
 # =====================
 # Graphique
