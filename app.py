@@ -37,12 +37,14 @@ benchmark = "^FCHI"  # CAC40
 
 start = st.sidebar.date_input("Start date", datetime(2020, 1, 1))
 
+# Convertir les clés du dictionnaire en liste pour éviter les problèmes de hash
+tickers = list(allocation.keys())
+
 # =====================
 # Téléchargement prix
 # =====================
 @st.cache_data(ttl=3600)
 def load_prices(tickers, start):
-    tickers = list(tickers)
     prices = pd.DataFrame()
 
     for t in tickers:
@@ -50,19 +52,19 @@ def load_prices(tickers, start):
             tmp = yf.download(t, start=start)["Adj Close"]
             if not tmp.empty:
                 prices[t] = tmp
-        except:
-            pass
+        except Exception as e:
+            st.write(f"Erreur lors du téléchargement des données pour {t}: {e}")
 
     # fallback CSV fonds
     try:
         override = pd.read_csv("prices_override.csv", index_col=0, parse_dates=True)
         prices = prices.combine_first(override)
-    except:
-        pass
+    except Exception as e:
+        st.write(f"Erreur lors de la lecture du fichier CSV: {e}")
 
     return prices
 
-prices = load_prices(allocation.keys(), start)
+prices = load_prices(tickers, start)
 
 # =====================
 # Construction portefeuille
