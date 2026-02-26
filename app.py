@@ -107,10 +107,10 @@ def load_benchmark(start):
 
 bench_index = load_benchmark(start)
 
-if bench_index.empty:
-    st.error("Aucune donnée de benchmark n'a pu être téléchargée. Utilisation d'un benchmark fictif pour la démonstration.")
+if bench_index.empty or not isinstance(bench_index, pd.Series):
+    st.warning("Aucune donnée de benchmark valide n'a pu être téléchargée. Utilisation d'un benchmark fictif pour la démonstration.")
     # Créer un benchmark fictif pour la démonstration
-    bench_index = pd.Series(np.cumprod(1 + np.random.normal(0.0005, 0.02, len(portfolio_index.index))), index=portfolio_index.index)
+    bench_index = pd.Series(np.cumprod(1 + np.random.normal(0.0005, 0.02, len(portfolio_index))), index=portfolio_index.index)
 
 # =====================
 # Graphique
@@ -146,7 +146,15 @@ st.subheader("📈 Statistiques")
 
 col1, col2 = st.columns(2)
 
-col1.metric("Perf portefeuille", f"{(portfolio_index.iloc[-1]-1)*100:.2f}%")
-col2.metric("Perf CAC40", f"{(bench_index.iloc[-1]-1)*100:.2f}%")
+# Vérification de la performance du portefeuille
+portfolio_perf = (portfolio_index.iloc[-1] - 1) * 100 if not portfolio_index.empty else 0
+col1.metric("Perf portefeuille", f"{portfolio_perf:.2f}%")
+
+# Vérification de la performance du benchmark
+if isinstance(bench_index, pd.Series) and not bench_index.empty:
+    bench_perf = (bench_index.iloc[-1] - 1) * 100
+else:
+    bench_perf = 0
+col2.metric("Perf CAC40", f"{bench_perf:.2f}%")
 
 st.caption("Mise à jour automatique toutes les heures")
