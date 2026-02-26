@@ -1,62 +1,115 @@
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import matplotlib.pyplot as plt
-from datetime import datetime, timedelta
+import numpy as np
+import plotly.graph_objects as go
+from datetime import datetime
 
-# Titre de l'application
-st.title("Comparaison d'Allocation vs CAC40")
+st.set_page_config(page_title="Portfolio vs CAC40", layout="wide")
 
-# Données d'allocation (à adapter selon votre tableau)
-allocation_data = {
-    "Cash": 5,
-    "Actions Europe": 28,  # 5+5+5+4+5+4
-    "Actions small & mid": 18,  # 5+4+5+4
-    "Actions US": 11,  # 3+2+3+3
-    "Fonds alternatif": 16,  # 8+8
-    "Fonds Obligataire": 17,  # 9+8
-    "Fonds Immobilier": 5,
-    "Fonds Actions Pays Emergents": 8,
+st.title("📊 Portfolio vs CAC40")
+
+# =====================
+# Allocation
+# =====================
+allocation = {
+    "TTE.PA": 0.05,
+    "MC.PA": 0.05,
+    "INGA.AS": 0.05,
+    "SAP.DE": 0.04,
+    "ACLN.SW": 0.05,
+    "UBER": 0.04,
+    "BOI.PA": 0.05,
+    "EOAN.DE": 0.05,
+    "GOOGL": 0.03,
+    "META": 0.02,
+    "HWM": 0.03,
+    "AMZN": 0.03,
+    "LU0912261970": 0.08,
+    "LU1331974276": 0.08,
+    "FR0007008750": 0.09,
+    "LU0292585626": 0.08,
+    "FR0010541821": 0.05,
+    "FR0011268705": 0.08
 }
 
-# Fonction pour récupérer les données du CAC40
-@st.cache_data
-def get_cac40_data():
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=365)
-    cac40 = yf.Ticker("^FCHI")
-    df = cac40.history(start=start_date, end=end_date)
-    return df["Close"]
+benchmark = "^FCHI"  # CAC40
 
-# Récupération des données
-cac40_data = get_cac40_data()
+start = st.sidebar.date_input("Start date", datetime(2020,1,1))
 
-# Calcul de la performance de l'allocation (exemple simplifié)
-# Ici, on simule une performance linéaire pour l'exemple
-allocation_performance = pd.Series(
-    data=[sum(allocation_data.values()) * (1 + 0.0005 * i) for i in range(len(cac40_data))],
-    index=cac40_data.index
+# =====================
+# Téléchargement prix
+# =====================
+@st.cache_data(ttl=3600)
+def load_prices(tickers, start):
+
+    data = yf.download(list(tickers), start=start)["Adj Close"]
+
+    # Fallback CSV override pour fonds non dispo
+    try:
+        override = pd.read_csv("prices_override.csv", index_col=0, parse_dates=True)
+        data = data.combine_first(override)
+    except:
+        pass
+
+    return data
+
+prices = load_prices(allocation.keys(), start)
+
+# =====================
+# Construction portefeuille
+# =====================
+weights = pd.Series(allocation)
+
+returns = prices.pct_change().fillna(0)
+portfolio_returns = (returns * weights).sum(axis=1)
+portfolio_index = (1 + portfolio_returns).cumprod()
+
+# =====================
+# Benchmark
+# =====================
+@st.cache_data(ttl=3600)
+def load_benchmark(start):
+    b = yf.download(benchmark, start=start)["Adj Close"]
+    return (1 + b.pct_change().fillna(0)).cumprod()
+
+bench_index = load_benchmark(start)
+
+# =====================
+# Graphique
+# =====================
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=portfolio_index.index,
+    y=portfolio_index,
+    name="Portfolio",
+    line=dict(width=3)
+))
+
+fig.add_trace(go.Scatter(
+    x=bench_index.index,
+    y=bench_index,
+    name="CAC40",
+    line=dict(width=3)
+))
+
+fig.update_layout(
+    height=600,
+    template="plotly_white",
+    title="Performance cumulée"
 )
 
-# Affichage des données
-st.subheader("Allocation actuelle")
-st.write(allocation_data)
+st.plotly_chart(fig, use_container_width=True)
 
-# Graphique comparatif
-fig, ax = plt.subplots()
-ax.plot(cac40_data.index, cac40_data, label="CAC40", color="blue")
-ax.plot(allocation_performance.index, allocation_performance, label="Mon Allocation", color="red")
-ax.set_title("Comparaison de la performance")
-ax.set_xlabel("Date")
-ax.set_ylabel("Valeur")
-ax.legend()
-st.pyplot(fig)
+# =====================
+# Metrics
+# =====================
+st.subheader("📈 Statistiques")
 
-# Instructions pour GitHub
-st.subheader("Comment héberger sur GitHub ?")
-st.write("""
-1. Créez un dépôt GitHub.
-2. Ajoutez les fichiers `app.py` et `requirements.txt`.
-3. Poussez les fichiers sur GitHub.
-4. Utilisez un service comme [Streamlit Community Cloud](https://streamlit.io/cloud) pour déployer l'application.
-""")
+col1, col2 = st.columns(2)
+
+col1.metric("Perf portefeuille", f"{(portfolio_index.iloc[-1]-1)*100:.2f}%")
+col2.metric("Perf CAC40", f"{(bench_index.iloc[-1]-1)*100:.2f}%")
+
+st.caption("Mise à jour automatique toutes les heures")
