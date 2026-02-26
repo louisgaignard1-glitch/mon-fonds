@@ -17,20 +17,15 @@ allocation = {
     "MC.PA": 0.05,
     "INGA.AS": 0.05,
     "SAP.DE": 0.04,
-    "ACLN.SW": 0.05,
+    "ACA.EB": 0.05,  # Remplacement de ACLN.SW
     "UBER": 0.04,
-    "BOI.PA": 0.05,
+    "BN.PA": 0.05,  # Remplacement de BOI.PA
     "EOAN.DE": 0.05,
     "GOOGL": 0.03,
     "META": 0.02,
     "HWM": 0.03,
     "AMZN": 0.03,
-    "LU0912261970": 0.08,
-    "LU1331974276": 0.08,
-    "FR0007008750": 0.09,
-    "LU0292585626": 0.08,
-    "FR0010541821": 0.05,
-    "FR0011268705": 0.08
+    # Les fonds ne sont pas disponibles sur Yahoo Finance, ils seront ignorés
 }
 
 benchmark = "^FCHI"  # CAC40
@@ -49,45 +44,51 @@ def load_prices(tickers, start):
 
     for t in tickers:
         try:
-            tmp = yf.download(t, start=start)["Adj Close"]
+            tmp = yf.download(t, start=start)
             if not tmp.empty:
-                prices[t] = tmp
+                if "Adj Close" in tmp.columns:
+                    prices[t] = tmp["Adj Close"]
+                elif "Close" in tmp.columns:
+                    prices[t] = tmp["Close"]
         except Exception as e:
             st.write(f"Erreur lors du téléchargement des données pour {t}: {e}")
-
-    # fallback CSV fonds
-    try:
-        override = pd.read_csv("prices_override.csv", index_col=0, parse_dates=True)
-        prices = prices.combine_first(override)
-    except Exception as e:
-        st.write(f"Erreur lors de la lecture du fichier CSV: {e}")
 
     return prices
 
 prices = load_prices(tickers, start)
 
+if prices.empty:
+    st.error("Aucune donnée de prix n'a pu être téléchargée. Vérifiez les tickers ou votre connexion Internet.")
+    st.stop()
+
 # =====================
 # Construction portefeuille
 # =====================
 weights = pd.Series(allocation)
+weights = weights[weights.index.isin(prices.columns)]  # Filtrer les poids pour ne garder que les tickers disponibles
+weights = weights / weights.sum()  # Normaliser les poids pour qu'ils totalisent 1
 
-if not prices.empty:
-    returns = prices.pct_change().fillna(0)
-    portfolio_returns = (returns * weights).sum(axis=1)
-    portfolio_index = (1 + portfolio_returns).cumprod()
-else:
-    st.error("No price data available.")
-    st.stop()
+returns = prices.pct_change().fillna(0)
+portfolio_returns = (returns * weights).sum(axis=1)
+portfolio_index = (1 + portfolio_returns).cumprod()
 
 # =====================
 # Benchmark
 # =====================
 @st.cache_data(ttl=3600)
 def load_benchmark(start):
-    b = yf.download(benchmark, start=start)["Adj Close"]
-    return (1 + b.pct_change().fillna(0)).cumprod()
+    try:
+        b = yf.download(benchmark, start=start)["Adj Close"]
+        return (1 + b.pct_change().fillna(0)).cumprod()
+    except Exception as e:
+        st.error(f"Erreur lors du téléchargement des données pour le benchmark: {e}")
+        return pd.Series()
 
 bench_index = load_benchmark(start)
+
+if bench_index.empty:
+    st.error("Aucune donnée de benchmark n'a pu être téléchargée.")
+    st.stop()
 
 # =====================
 # Graphique
