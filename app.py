@@ -43,17 +43,19 @@ start = st.sidebar.date_input("Start date", datetime(2020,1,1))
 @st.cache_data(ttl=3600)
 def load_prices(tickers, start):
 
-    tickers = list(tickers)  # 🔥 fix cache hash
+    tickers = list(tickers)
 
     prices = pd.DataFrame()
 
     for t in tickers:
         try:
             tmp = yf.download(t, start=start)["Adj Close"]
-            prices[t] = tmp
+            if not tmp.empty:
+                prices[t] = tmp
         except:
             pass
 
+    # fallback CSV fonds
     try:
         override = pd.read_csv("prices_override.csv", index_col=0, parse_dates=True)
         prices = prices.combine_first(override)
