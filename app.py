@@ -35,16 +35,14 @@ allocation = {
 
 benchmark = "^FCHI"  # CAC40
 
-start = st.sidebar.date_input("Start date", datetime(2020,1,1))
+start = st.sidebar.date_input("Start date", datetime(2020, 1, 1))
 
 # =====================
 # Téléchargement prix
 # =====================
 @st.cache_data(ttl=3600)
 def load_prices(tickers, start):
-
     tickers = list(tickers)
-
     prices = pd.DataFrame()
 
     for t in tickers:
@@ -64,14 +62,20 @@ def load_prices(tickers, start):
 
     return prices
 
+prices = load_prices(allocation.keys(), start)
+
 # =====================
 # Construction portefeuille
 # =====================
 weights = pd.Series(allocation)
 
-returns = prices.pct_change().fillna(0)
-portfolio_returns = (returns * weights).sum(axis=1)
-portfolio_index = (1 + portfolio_returns).cumprod()
+if not prices.empty:
+    returns = prices.pct_change().fillna(0)
+    portfolio_returns = (returns * weights).sum(axis=1)
+    portfolio_index = (1 + portfolio_returns).cumprod()
+else:
+    st.error("No price data available.")
+    st.stop()
 
 # =====================
 # Benchmark
