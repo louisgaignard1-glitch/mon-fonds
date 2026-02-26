@@ -43,18 +43,24 @@ start = st.sidebar.date_input("Start date", datetime(2020,1,1))
 @st.cache_data(ttl=3600)
 def load_prices(tickers, start):
 
-    data = yf.download(list(tickers), start=start)["Adj Close"]
+    tickers = list(tickers)  # 🔥 fix cache hash
 
-    # Fallback CSV override pour fonds non dispo
+    prices = pd.DataFrame()
+
+    for t in tickers:
+        try:
+            tmp = yf.download(t, start=start)["Adj Close"]
+            prices[t] = tmp
+        except:
+            pass
+
     try:
         override = pd.read_csv("prices_override.csv", index_col=0, parse_dates=True)
-        data = data.combine_first(override)
+        prices = prices.combine_first(override)
     except:
         pass
 
-    return data
-
-prices = load_prices(allocation.keys(), start)
+    return prices
 
 # =====================
 # Construction portefeuille
