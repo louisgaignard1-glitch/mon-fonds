@@ -86,48 +86,40 @@ portfolio_returns = (returns * weights).sum(axis=1)
 portfolio_index = (1 + portfolio_returns).cumprod()
 
 # =====================
-# Hedge FX USD via forwards (simulation robuste)
+# =====================
+# Hedge FX USD (robuste)
 # =====================
 usd_tickers = ["UBER", "GOOGL", "META", "HWM", "AMZN"]
 
-# téléchargement FX
 fx = yf.download("EURUSD=X", start=start, auto_adjust=True)
 
 hedged_returns = returns.copy()
 
 if not fx.empty:
 
-    # S'assurer qu'on récupère une vraie Series
+    # extraire série FX propre
     if isinstance(fx, pd.DataFrame):
-        fx_series = fx.iloc[:, 0]
+        if "Close" in fx.columns:
+            fx_series = fx["Close"]
+        else:
+            fx_series = fx.iloc[:, 0]
     else:
         fx_series = fx
 
-    # Forcer index datetime
+    # index datetime
     fx_series.index = pd.to_datetime(fx_series.index)
-    returns.index = pd.to_datetime(returns.index)
+    hedged_returns.index = pd.to_datetime(hedged_returns.index)
 
-    # Alignement STRICT sur index portefeuille
-    fx_series = fx_series.reindex(returns.index)
+    # alignement STRICT
+    fx_series = fx_series.reindex(hedged_returns.index).ffill().bfill()
 
-    # Remplissage sécurisé
-    fx_series = fx_series.ffill().bfill()
+    # returns FX
+    fx_returns = fx_series.pct_change().fillna(0)
 
-    # Calcul return FX
-    fx_returns = fx_series.pct_change()
-    fx_returns = fx_returns.fillna(0)
-
-    # Conversion explicite en numpy array (anti bug pandas 3.13)
-    fx_array = fx_returns.to_numpy()
-
-    # Hedge ticker par ticker
+    # hedge uniquement actions USD
     for t in usd_tickers:
         if t in hedged_returns.columns:
-            hedged_returns[t] = hedged_returns[t].to_numpy() - fx_array
-
-# NAV hedgée
-portfolio_returns_hedged = (hedged_returns * weights).sum(axis=1)
-portfolio_index_hedged = (1 + portfolio_returns_hedged).cumprod()
+            hedged_returns[t] = hedged_returns[t].sub(fx_returns, fill_value=0)
 # =====================
 # Benchmark composite
 # =====================
