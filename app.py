@@ -80,9 +80,54 @@ weights = pd.Series(allocation)
 weights = weights[weights.index.isin(prices.columns)]
 
 returns = prices.pct_change().fillna(0)
+
+# NAV non hedgée
 portfolio_returns = (returns * weights).sum(axis=1)
 portfolio_index = (1 + portfolio_returns).cumprod()
 
+# =====================
+# Hedge FX USD via forwards (simulation robuste)
+# =====================
+usd_tickers = ["UBER", "GOOGL", "META", "HWM", "AMZN"]
+
+# téléchargement FX
+fx = yf.download("EURUSD=X", start=start, auto_adjust=True)
+
+hedged_returns = returns.copy()
+
+if not fx.empty:
+
+    # S'assurer qu'on récupère une vraie Series
+    if isinstance(fx, pd.DataFrame):
+        fx_series = fx.iloc[:, 0]
+    else:
+        fx_series = fx
+
+    # Forcer index datetime
+    fx_series.index = pd.to_datetime(fx_series.index)
+    returns.index = pd.to_datetime(returns.index)
+
+    # Alignement STRICT sur index portefeuille
+    fx_series = fx_series.reindex(returns.index)
+
+    # Remplissage sécurisé
+    fx_series = fx_series.ffill().bfill()
+
+    # Calcul return FX
+    fx_returns = fx_series.pct_change()
+    fx_returns = fx_returns.fillna(0)
+
+    # Conversion explicite en numpy array (anti bug pandas 3.13)
+    fx_array = fx_returns.to_numpy()
+
+    # Hedge ticker par ticker
+    for t in usd_tickers:
+        if t in hedged_returns.columns:
+            hedged_returns[t] = hedged_returns[t].to_numpy() - fx_array
+
+# NAV hedgée
+portfolio_returns_hedged = (hedged_returns * weights).sum(axis=1)
+portfolio_index_hedged = (1 + portfolio_returns_hedged).cumprod()
 # =====================
 # Benchmark composite
 # =====================
@@ -156,7 +201,12 @@ fig.add_trace(go.Scatter(
     name="Benchmark composite",
     line=dict(width=3)  # Ligne continue
 ))
-
+fig.add_trace(go.Scatter(
+    x=portfolio_index_hedged.index,
+    y=portfolio_index_hedged,
+    name="Portfolio hedgé USD",
+    line=dict(width=3, dash="dot")
+))
 fig.update_layout(
     height=600,
     template="plotly_white",
@@ -181,7 +231,17 @@ Le benchmark composite reflète la structure multi-actifs du portefeuille :
 
 Ce benchmark permet une comparaison plus réaliste qu’un indice actions pur.
 """)
+st.subheader("💱 Couverture FX USD")
 
+st.markdown("""
+Une simulation de couverture du risque dollar est appliquée via des contrats à terme FX (forwards).
+
+Les actions américaines sont couvertes en neutralisant la variation EUR/USD :
+
+Return hedgé ≈ Return action USD − Return EURUSD
+
+Cette approche simule un hedge forward à 100% sans coût de carry.
+""")
 # =====================
 # Calcul des performances
 # =====================
