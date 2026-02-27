@@ -245,7 +245,7 @@ Une simulation de couverture du risque dollar est appliquée via des contrats à
 
 Les actions américaines sont couvertes en neutralisant la variation EUR/USD :
 
-Return hedgé ≈ Return action USD − Return EURUSD
+Return hedgé ≈ Return action USD + Return EURUSD
 
 Cette approche simule un hedge forward à 100% sans coût de carry.
 """)
