@@ -70,12 +70,67 @@ if prices.empty:
 # =====================
 # Construction portefeuille
 # =====================
-weights = pd.Series(allocation)
-weights = weights[weights.index.isin(prices.columns)]
-weights = weights / weights.sum()   
+weights_raw = pd.Series(allocation)
+
+# Identifier les actifs manquants (non téléchargés)
+missing = weights_raw[~weights_raw.index.isin(prices.columns)]
+present = weights_raw[weights_raw.index.isin(prices.columns)]
+
+if not missing.empty:
+    missing_pct = missing.sum() * 100
+    st.warning(
+        f"⚠️ **{len(missing)} actif(s) exclus de la construction du portefeuille** "
+        f"(représentant {missing_pct:.1f}% de l'allocation cible) :\n"
+        + "\n".join([f"- `{t}` ({w*100:.1f}%)" for t, w in missing.items()])
+    )
+
+# Arrêt si plus de 20% de l'allocation est manquante
+if missing.sum() > 0.20:
+    st.error("Plus de 20% de l'allocation est manquante. Vérifiez les tickers des fonds.")
+    st.stop()
+
+# Renormalisation des poids sur les actifs disponibles (95% du capital)
+weights = present / present.sum() * 0.95
+
 if weights.empty:
     st.error("Aucun poids valide n'a pu être calculé. Vérifiez les tickers et les allocations.")
     st.stop()
+
+# Tableau de contrôle des poids effectifs
+# Tableau de contrôle des poids effectifs
+with st.expander("🔍 Vérification des poids effectifs du portefeuille"):
+    ticker_names_display = {
+        "TTE.PA": "TotalEnergies", "MC.PA": "LVMH", "INGA.AS": "ING Groep",
+        "SAP.DE": "SAP", "ACLN.SW": "ACLN", "THEON.AS": "Theon Intl",
+        "BOI.PA": "Boiron", "EOAN.DE": "E.ON", "GOOGL": "Alphabet",
+        "META": "Meta", "HWM": "Howmet", "AMZN": "Amazon",
+        "0P0000ZWX4.F": "Helium Fund Perf A EUR",
+        "0P0001861S.F": "Eleva Abs Ret Eurp S EUR",
+        "0P00000M6C.F": "R-co Conviction Credit Euro",
+        "0P00008ESK.F": "AXAIMFIIS US Short Dur HY",
+        "0P0000A6ZG.F": "Immobilier 21 AC",
+        "0P0000WHLW.F": "GemEquity R",
+    }
+    df_weights = pd.DataFrame({
+        "Actif": [ticker_names_display.get(t, t) for t in weights.index],
+        "Ticker": weights.index,
+        "Poids cible": [f"{allocation[t]*100:.1f}%" for t in weights.index],
+        "Poids effectif": [f"{w*100:.1f}%" for w in weights.values],
+    }).reset_index(drop=True)
+
+    # Ajouter une ligne pour le cash
+    cash_row = pd.DataFrame({
+        "Actif": ["Cash"],
+        "Ticker": ["Cash"],
+        "Poids cible": ["5.0%"],
+        "Poids effectif": ["5.0%"]
+    })
+    df_weights = pd.concat([df_weights, cash_row], ignore_index=True)
+
+    st.dataframe(df_weights, use_container_width=True)
+    total_cible = sum(allocation.values()) * 100
+    total_effectif = (weights.sum() + 0.05) * 100
+    st.caption(f"Total poids cible : {total_cible:.1f}% | Total poids effectif : {total_effectif:.1f}%")
 
 usd_tickers = [ "GOOGL", "META", "HWM", "AMZN"]
 
@@ -99,6 +154,8 @@ fx_series.index = pd.to_datetime(fx_series.index)
 # NAV portefeuille non hedgé
 # =====================
 prices_eur = prices.copy()
+
+# Conversion des actifs en USD en EUR
 for t in usd_tickers:
     if t in prices.columns:
         combined = pd.concat([prices[t], fx_series], axis=1, join='inner').ffill()
@@ -112,6 +169,10 @@ if prices_eur.empty:
     st.error("Aucune donnée de prix en EUR n'a pu être calculée.")
     st.stop()
 
+# Remplacer les valeurs manquantes dans prices_eur par la dernière valeur disponible (forward fill)
+prices_eur = prices_eur.ffill()
+
+# Calculer les rendements
 returns = prices_eur.pct_change().fillna(0)
 portfolio_returns = (returns * weights).sum(axis=1)
 portfolio_index = (1 + portfolio_returns).cumprod()
@@ -123,6 +184,8 @@ if portfolio_index.empty:
 # NAV portefeuille hedgé
 # =====================
 hedged_prices = prices.copy()
+
+# Traitement des actifs en USD pour le portefeuille hedgé
 for t in usd_tickers:
     if t in prices.columns:
         combined = pd.concat([prices[t], fx_series], axis=1, join='outer').ffill()
@@ -136,6 +199,10 @@ if hedged_prices.empty:
     st.error("Aucune donnée de prix hedgé n'a pu être calculée.")
     st.stop()
 
+# Remplacer les valeurs manquantes dans hedged_prices par la dernière valeur disponible (forward fill)
+hedged_prices = hedged_prices.ffill()
+
+# Calculer les rendements
 hedged_returns = hedged_prices.pct_change().fillna(0)
 portfolio_returns_hedged = (hedged_returns * weights).sum(axis=1)
 portfolio_index_hedged = (1 + portfolio_returns_hedged).cumprod()
@@ -178,12 +245,12 @@ if bench_index.empty:
     st.stop()
 
 common_index = portfolio_index.index.intersection(bench_index.index)
-
 portfolio_index = portfolio_index.loc[common_index]
 portfolio_index_hedged = portfolio_index_hedged.loc[common_index]
 bench_index = bench_index.loc[common_index]
+
 # =====================
-# Graphique
+# Graphique principal
 # =====================
 fig = go.Figure()
 fig.add_trace(go.Scatter(
@@ -212,7 +279,105 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # =====================
-# Texte explicatif 
+# Les 5 lignes les plus performantes sur le dernier mois
+# =====================
+st.subheader("🏆 Les 5 lignes les plus performantes sur le dernier mois")
+
+# Mapping noms lisibles
+ticker_names = {
+    "TTE.PA": "TotalEnergies",
+    "MC.PA": "LVMH",
+    "INGA.AS": "ING Group",
+    "SAP.DE": "SAP",
+    "ACLN.SW": "ACLN",
+    "THEON.AS": "Theon Intl",
+    "BOI.PA": "Boiron",
+    "EOAN.DE": "E.ON",
+    "GOOGL": "Alphabet",
+    "META": "Meta",
+    "HWM": "Howmet",
+    "AMZN": "Amazon",
+    "0P0000ZWX4.F": "Helium Fund Perf A EUR",
+    "0P0001861S.F": "Eleva Abs Ret Eurp S EUR",
+    "0P00000M6C.F": "R-co Conviction Credit Euro",
+    "0P00008ESK.F": "AXAIMFIIS US SD HY EUR H",
+    "0P0000A6ZG.F": "Immobilier 21 AC",
+    "0P0000WHLW.F": "GemEquity R",
+}
+
+# Filtrer les 30 derniers jours calendaires (≈ 1 mois)
+month_start = prices_eur.index[-1] - timedelta(days=30)
+prices_month = prices_eur[prices_eur.index >= month_start]
+
+# Remplacer les valeurs manquantes par la dernière valeur disponible (forward fill)
+prices_month = prices_month.ffill()
+
+if len(prices_month) >= 2:
+    # Performance de chaque ligne sur le mois (premier prix dispo → dernier)
+    monthly_perf = (prices_month.iloc[-1] / prices_month.iloc[0] - 1) * 100
+    monthly_perf = monthly_perf.dropna().sort_values(ascending=False)
+    top5 = monthly_perf.head(5)
+
+    col_bar, col_line = st.columns(2)
+
+    top5_labels = [ticker_names.get(t, t) for t in top5.index]
+
+    # --- Graphique barres ---
+    with col_bar:
+        colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in top5.values]
+        fig_bar = go.Figure(go.Bar(
+            x=top5_labels,
+            y=top5.values,
+            marker_color=colors,
+            text=[f"{v:.2f}%" for v in top5.values],
+            textposition='outside'
+        ))
+        fig_bar.update_layout(
+            title="Performance mensuelle (%)",
+            template="plotly_white",
+            yaxis_title="%",
+            height=400,
+            showlegend=False
+        )
+        st.plotly_chart(fig_bar, use_container_width=True)
+
+    # --- Graphique lignes (évolution normalisée sur le mois) ---
+    with col_line:
+        fig_line = go.Figure()
+        for ticker in top5.index:
+            if ticker in prices_month.columns:
+                series = prices_month[ticker]
+                if len(series) >= 2:
+                    normalized = (series / series.iloc[0]) * 100
+                    fig_line.add_trace(go.Scatter(
+                        x=normalized.index,
+                        y=normalized,
+                        name=ticker_names.get(ticker, ticker),
+                        mode='lines',
+                        line=dict(width=2)
+                    ))
+        fig_line.update_layout(
+            title="Évolution normalisée sur le mois (base 100)",
+            template="plotly_white",
+            yaxis_title="Base 100",
+            height=400
+        )
+        st.plotly_chart(fig_line, use_container_width=True)
+
+    # Tableau récapitulatif
+    st.markdown("**Détail du Top 5**")
+    df_top5 = pd.DataFrame({
+        "Actif": top5_labels,
+        "Ticker": top5.index,
+        "Performance mois": [f"{v:.2f}%" for v in top5.values],
+        "Poids dans le portefeuille": [f"{allocation.get(t, 0)*100:.1f}%" for t in top5.index]
+    }).reset_index(drop=True)
+    st.dataframe(df_top5, use_container_width=True)
+else:
+    st.warning("Pas assez de données disponibles pour calculer le top 5 mensuel.")
+
+# =====================
+# Texte explicatif
 # =====================
 st.subheader("📊 Composition du benchmark")
 st.markdown("""
@@ -222,20 +387,18 @@ Le benchmark composite reflète la structure multi-actifs du portefeuille :
 • 25% Obligations américaines à long terme → obligations
 • 10% Immobilier américain → immobilier
 • 5% MSCI Emerging Markets → actions émergentes
-Ce benchmark permet une comparaison plus réaliste qu’un indice actions pur.
+Ce benchmark permet une comparaison plus réaliste qu'un indice actions pur.
 """)
 st.subheader("💱 Couverture FX USD")
-
 st.markdown("""
-Cette simulation couvre le risque de change des actions américaines (ex: UBER, GOOGL) en utilisant un **contrat forward** pour figer le taux EUR/USD.
+Cette simulation couvre le risque de change des actions américaines (ex: META, GOOGL) en utilisant un **contrat forward** pour figer le taux EUR/USD.
 
 **Formule appliquée :**
 Return hedgé = Return en USD − Variation du taux EUR/USD
 
-→ Cela neutralise l’impact des fluctuations du change, comme si vous aviez verrouillé le taux de change initial.
+→ Cela neutralise l'impact des fluctuations du change, comme si vous aviez verrouillé le taux de change initial.
 *(Simplification : pas de coût de couverture inclus.)*
 """)
-
 
 # =====================
 # Calcul des performances
