@@ -77,7 +77,7 @@ if weights.empty:
     st.error("Aucun poids valide n'a pu être calculé. Vérifiez les tickers et les allocations.")
     st.stop()
 
-usd_tickers = ["UBER", "GOOGL", "META", "HWM", "AMZN"]
+usd_tickers = [ "GOOGL", "META", "HWM", "AMZN"]
 
 # =====================
 # Télécharger EUR/USD
