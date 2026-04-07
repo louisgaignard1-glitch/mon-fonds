@@ -44,20 +44,26 @@ def load_prices(tickers, start):
     failed_tickers = []
     for t in tickers:
         try:
-            tmp = yf.download(t, start=start)
-            if not tmp.empty:
-                if "Adj Close" in tmp.columns:
-                    prices[t] = tmp["Adj Close"]
-                elif "Close" in tmp.columns:
-                    prices[t] = tmp["Close"]
-                else:
-                    st.write(f"Aucune colonne 'Adj Close' ou 'Close' trouvée pour {t}")
-                    failed_tickers.append(t)
+            tmp = yf.download(t, start=start, auto_adjust=False, progress=False)
+            if tmp.empty:
+                failed_tickers.append(t)
+                continue
+
+            # Aplatir le MultiIndex si présent
+            if isinstance(tmp.columns, pd.MultiIndex):
+                tmp.columns = tmp.columns.get_level_values(0)
+
+            if "Adj Close" in tmp.columns:
+                prices[t] = tmp["Adj Close"]
+            elif "Close" in tmp.columns:
+                prices[t] = tmp["Close"]
             else:
                 failed_tickers.append(t)
+
         except Exception as e:
             st.write(f"Erreur lors du téléchargement des données pour {t}: {e}")
             failed_tickers.append(t)
+
     if failed_tickers:
         st.warning(f"Les tickers suivants n'ont pas pu être téléchargés : {', '.join(failed_tickers)}. Vérifiez leur validité.")
     return prices
@@ -224,12 +230,14 @@ def load_benchmark_composite(start):
     }
     prices = pd.DataFrame()
     for ticker in benchmark_weights.keys():
-        tmp = yf.download(ticker, start=start)
-        if not tmp.empty:
-            if "Adj Close" in tmp.columns:
-                prices[ticker] = tmp["Adj Close"]
-            elif "Close" in tmp.columns:
-                prices[ticker] = tmp["Close"]
+    tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
+    if not tmp.empty:
+        if isinstance(tmp.columns, pd.MultiIndex):
+            tmp.columns = tmp.columns.get_level_values(0)
+        if "Adj Close" in tmp.columns:
+            prices[ticker] = tmp["Adj Close"]
+        elif "Close" in tmp.columns:
+            prices[ticker] = tmp["Close"]
     if prices.empty:
         st.error("Aucune donnée de benchmark n'a pu être téléchargée.")
         st.stop()
