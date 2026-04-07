@@ -233,7 +233,7 @@ def load_benchmark_composite(start):
     if prices.empty:
         st.error("Aucune donnée de benchmark n'a pu être téléchargée.")
         st.stop()
-    prices = prices.fillna(method="ffill")
+    prices = prices.ffill()
     weights = pd.Series(benchmark_weights)
     returns = prices.pct_change().fillna(0)
     bench_returns = (returns * weights).sum(axis=1)
