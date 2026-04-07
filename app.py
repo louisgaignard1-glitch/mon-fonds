@@ -143,11 +143,12 @@ usd_tickers = [ "GOOGL", "META", "HWM", "AMZN"]
 # =====================
 # Télécharger EUR/USD
 # =====================
-fx = yf.download("EURUSD=X", start=start)
+fx = yf.download("EURUSD=X", start=start, auto_adjust=False, progress=False)
 if fx.empty:
     st.error("Impossible de télécharger les données EUR/USD.")
     st.stop()
-
+if isinstance(fx.columns, pd.MultiIndex):
+    fx.columns = fx.columns.get_level_values(0)
 if "Adj Close" in fx.columns:
     fx_series = fx["Adj Close"]
 elif "Close" in fx.columns:
@@ -230,14 +231,14 @@ def load_benchmark_composite(start):
     }
     prices = pd.DataFrame()
     for ticker in benchmark_weights.keys():
-    tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
-    if not tmp.empty:
-        if isinstance(tmp.columns, pd.MultiIndex):
-            tmp.columns = tmp.columns.get_level_values(0)
-        if "Adj Close" in tmp.columns:
-            prices[ticker] = tmp["Adj Close"]
-        elif "Close" in tmp.columns:
-            prices[ticker] = tmp["Close"]
+        tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
+        if not tmp.empty:
+            if isinstance(tmp.columns, pd.MultiIndex):
+                tmp.columns = tmp.columns.get_level_values(0)
+            if "Adj Close" in tmp.columns:
+                prices[ticker] = tmp["Adj Close"]
+            elif "Close" in tmp.columns:
+                prices[ticker] = tmp["Close"]
     if prices.empty:
         st.error("Aucune donnée de benchmark n'a pu être téléchargée.")
         st.stop()
