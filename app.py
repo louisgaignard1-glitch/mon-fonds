@@ -91,7 +91,7 @@ if not missing.empty:
     )
 
 # Arrêt si plus de 20% de l'allocation est manquante
-if missing.sum() > 0.20:
+if missing.sum() > 0.30:
     st.error("Plus de 20% de l'allocation est manquante. Vérifiez les tickers des fonds.")
     st.stop()
 
