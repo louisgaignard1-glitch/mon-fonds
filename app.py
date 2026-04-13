@@ -12,24 +12,24 @@ st.title("📊 Portfolio vs Benchmark composite")
 # Allocation portefeuille
 # =====================
 allocation = {
-    "TTE.PA": 0.05,
-    "MC.PA": 0.05,
-    "INGA.AS": 0.05,
-    "SAP.DE": 0.04,
-    "ACLN.SW": 0.05,
-    "THEON.AS": 0.04,
-    "BOI.PA": 0.05,
-    "EOAN.DE": 0.05,
-    "GOOGL": 0.03,
-    "META": 0.02,
-    "HWM": 0.03,
-    "AMZN": 0.03,
-    "0P0000ZWX4.F": 0.08,
-    "0P0001861S.F": 0.08,
-    "0P00000M6C.F": 0.09,
-    "0P00008ESK.F": 0.08,
-    "0P0000A6ZG.F": 0.05,
-    "0P0000WHLW.F": 0.08
+"TTE.PA": 0.05,
+"MC.PA": 0.05,
+"INGA.AS": 0.05,
+"SAP.DE": 0.04,
+"ACLN.SW": 0.05,
+"THEON.AS": 0.04,
+"BOI.PA": 0.05,
+"EOAN.DE": 0.05,
+"GOOGL": 0.03,
+"META": 0.02,
+"HWM": 0.03,
+"AMZN": 0.03,
+"0P0000ZWX4.F": 0.08,
+"0P0001861S.F": 0.08,
+"0P00000M6C.F": 0.09,
+"0P00008ESK.F": 0.08,
+"0P0000A6ZG.F": 0.05,
+"0P0000WHLW.F": 0.08
 }
 
 tickers = list(allocation.keys())
@@ -39,12 +39,35 @@ start = st.sidebar.date_input("Start date", datetime(2020, 1, 1))
 # Chargement prix
 # =====================
 @st.cache_data(ttl=3600)
+def download_single_ticker(ticker, start, max_retries=3):
+    """Télécharge un ticker avec plusieurs tentatives"""
+    for attempt in range(max_retries):
+        try:
+            # Tentative 1 : yf.download standard
+            tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
+            if not tmp.empty:
+                return tmp
+        except:
+            pass
+        
+        # Tentative 2 : yf.Ticker().history() (alternative pour TTE.PA)
+        try:
+            ticker_obj = yf.Ticker(ticker)
+            tmp = ticker_obj.history(start=start)
+            if not tmp.empty:
+                return tmp
+        except:
+            pass
+    
+    return pd.DataFrame()
+
+@st.cache_data(ttl=3600)
 def load_prices(tickers, start):
     prices = pd.DataFrame()
     failed_tickers = []
     for t in tickers:
         try:
-            tmp = yf.download(t, start=start, auto_adjust=False, progress=False)
+            tmp = download_single_ticker(t, start)
             if tmp.empty:
                 failed_tickers.append(t)
                 continue
@@ -91,18 +114,18 @@ if not missing.empty:
     )
 
 # Arrêt si plus de 20% de l'allocation est manquante
-if missing.sum() > 0.50:
+if missing.sum() > 0.20:
     st.error("Plus de 20% de l'allocation est manquante. Vérifiez les tickers des fonds.")
     st.stop()
 
-# Renormalisation des poids sur les actifs disponibles (95% du capital)
-weights = present / present.sum() * 0.95
+# Renormalisation des poids sur les actifs disponibles
+# Les poids sont simplement renormalisés pour faire 100% avec les actifs présents
+weights = present / present.sum()
 
 if weights.empty:
     st.error("Aucun poids valide n'a pu être calculé. Vérifiez les tickers et les allocations.")
     st.stop()
 
-# Tableau de contrôle des poids effectifs
 # Tableau de contrôle des poids effectifs
 with st.expander("🔍 Vérification des poids effectifs du portefeuille"):
     ticker_names_display = {
@@ -120,25 +143,15 @@ with st.expander("🔍 Vérification des poids effectifs du portefeuille"):
     df_weights = pd.DataFrame({
         "Actif": [ticker_names_display.get(t, t) for t in weights.index],
         "Ticker": weights.index,
-        "Poids cible": [f"{allocation[t]*100:.1f}%" for t in weights.index],
+        "Poids cible (avant exclusion)": [f"{allocation[t]*100:.1f}%" for t in weights.index],
         "Poids effectif": [f"{w*100:.1f}%" for w in weights.values],
     }).reset_index(drop=True)
 
-    # Ajouter une ligne pour le cash
-    cash_row = pd.DataFrame({
-        "Actif": ["Cash"],
-        "Ticker": ["Cash"],
-        "Poids cible": ["5.0%"],
-        "Poids effectif": ["5.0%"]
-    })
-    df_weights = pd.concat([df_weights, cash_row], ignore_index=True)
-
     st.dataframe(df_weights, use_container_width=True)
-    total_cible = sum(allocation.values()) * 100
-    total_effectif = (weights.sum() + 0.05) * 100
-    st.caption(f"Total poids cible : {total_cible:.1f}% | Total poids effectif : {total_effectif:.1f}%")
+    total_effectif = weights.sum() * 100
+    st.caption(f"Total poids effectif : {total_effectif:.1f}%")
 
-usd_tickers = [ "GOOGL", "META", "HWM", "AMZN"]
+usd_tickers = ["GOOGL", "META", "HWM", "AMZN"]
 
 # =====================
 # Télécharger EUR/USD
@@ -379,7 +392,7 @@ if len(prices_month) >= 2:
         "Actif": top5_labels,
         "Ticker": top5.index,
         "Performance mois": [f"{v:.2f}%" for v in top5.values],
-        "Poids dans le portefeuille": [f"{allocation.get(t, 0)*100:.1f}%" for t in top5.index]
+        "Poids dans le portefeuille": [f"{weights[t]*100:.1f}%" for t in top5.index if t in weights.index]
     }).reset_index(drop=True)
     st.dataframe(df_top5, use_container_width=True)
 else:
