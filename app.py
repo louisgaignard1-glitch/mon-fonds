@@ -12,59 +12,89 @@ st.title("📊 Portfolio vs Benchmark composite")
 # Allocation portefeuille
 # =====================
 allocation = {
-"TTE.PA": 0.05,
-"MC.PA": 0.05,
-"INGA.AS": 0.05,
-"SAP.DE": 0.04,
-"ACLN.SW": 0.05,
-"THEON.AS": 0.04,
-"BOI.PA": 0.05,
-"EOAN.DE": 0.05,
-"GOOGL": 0.03,
-"META": 0.02,
-"HWM": 0.03,
-"AMZN": 0.03,
-"0P0000ZWX4.F": 0.08,
-"0P0001861S.F": 0.08,
-"0P00000M6C.F": 0.09,
-"0P00008ESK.F": 0.08,
-"0P0000A6ZG.F": 0.05,
-"0P0000WHLW.F": 0.08
+    "TTE.PA": 0.05,
+    "MC.PA": 0.05,
+    "INGA.AS": 0.05,
+    "SAP.DE": 0.04,
+    "ACLN.SW": 0.05,
+    "THEON.AS": 0.04,
+    "BOI.PA": 0.05,
+    "EOAN.DE": 0.05,
+    "GOOGL": 0.03,
+    "META": 0.02,
+    "HWM": 0.03,
+    "AMZN": 0.03,
+    "0P0000ZWX4.F": 0.08,
+    "0P0001861S.F": 0.08,
+    "0P00000M6C.F": 0.09,
+    "0P00008ESK.F": 0.08,
+    "0P0000A6ZG.F": 0.05,
+    "0P0000WHLW.F": 0.08
 }
 
 tickers = list(allocation.keys())
 start = st.sidebar.date_input("Start date", datetime(2020, 1, 1))
 
 # =====================
-# Chargement prix
+# Chargement prix (avec solution de repli pour TTE.PA)
 # =====================
 @st.cache_data(ttl=3600)
 def download_single_ticker(ticker, start, max_retries=3):
-    """Télécharge un ticker avec plusieurs tentatives"""
-    for attempt in range(max_retries):
-        try:
-            # Tentative 1 : yf.download standard
-            tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
-            if not tmp.empty:
-                return tmp
-        except:
-            pass
-        
-        # Tentative 2 : yf.Ticker().history() (alternative pour TTE.PA)
-        try:
-            ticker_obj = yf.Ticker(ticker)
-            tmp = ticker_obj.history(start=start)
-            if not tmp.empty:
-                return tmp
-        except:
-            pass
-    
+    """Télécharge un ticker avec plusieurs tentatives, solution de repli pour TTE.PA"""
+    if ticker == "TTE.PA":
+        # Tentative spécifique pour TTE.PA (TotalEnergies)
+        for attempt in range(max_retries):
+            try:
+                # Méthode 1: yf.download
+                tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
+                if not tmp.empty:
+                    return tmp
+            except:
+                pass
+
+            try:
+                # Méthode 2: yf.Ticker().history()
+                ticker_obj = yf.Ticker(ticker)
+                tmp = ticker_obj.history(start=start)
+                if not tmp.empty:
+                    return tmp
+            except:
+                pass
+
+            try:
+                # Méthode 3: Utiliser le ticker alternatif "FP.PA" (TotalEnergies)
+                tmp = yf.download("FP.PA", start=start, auto_adjust=False, progress=False)
+                if not tmp.empty:
+                    return tmp
+            except:
+                pass
+
+    else:
+        # Méthode standard pour les autres tickers
+        for attempt in range(max_retries):
+            try:
+                tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
+                if not tmp.empty:
+                    return tmp
+            except:
+                pass
+
+            try:
+                ticker_obj = yf.Ticker(ticker)
+                tmp = ticker_obj.history(start=start)
+                if not tmp.empty:
+                    return tmp
+            except:
+                pass
+
     return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
 def load_prices(tickers, start):
     prices = pd.DataFrame()
     failed_tickers = []
+
+    # Téléchargement des données pour chaque ticker
     for t in tickers:
         try:
             tmp = download_single_ticker(t, start)
@@ -72,7 +102,6 @@ def load_prices(tickers, start):
                 failed_tickers.append(t)
                 continue
 
-            # Aplatir le MultiIndex si présent
             if isinstance(tmp.columns, pd.MultiIndex):
                 tmp.columns = tmp.columns.get_level_values(0)
 
@@ -87,13 +116,31 @@ def load_prices(tickers, start):
             st.write(f"Erreur lors du téléchargement des données pour {t}: {e}")
             failed_tickers.append(t)
 
+    # Vérification spécifique pour TTE.PA
+    if "TTE.PA" in failed_tickers:
+        st.warning("TTE.PA n'a pas pu être téléchargé directement. Tentative avec FP.PA (TotalEnergies)...")
+        try:
+            tmp = yf.download("FP.PA", start=start, auto_adjust=False, progress=False)
+            if not tmp.empty:
+                if isinstance(tmp.columns, pd.MultiIndex):
+                    tmp.columns = tmp.columns.get_level_values(0)
+                if "Adj Close" in tmp.columns:
+                    prices["TTE.PA"] = tmp["Adj Close"]
+                elif "Close" in tmp.columns:
+                    prices["TTE.PA"] = tmp["Close"]
+                failed_tickers.remove("TTE.PA")
+                st.success("TTE.PA a été récupéré avec succès via FP.PA !")
+        except Exception as e:
+            st.error(f"Échec de la récupération de TTE.PA via FP.PA: {e}")
+
     if failed_tickers:
-        st.warning(f"Les tickers suivants n'ont pas pu être téléchargés : {', '.join(failed_tickers)}. Vérifiez leur validité.")
+        st.warning(f"Les tickers suivants n'ont pas pu être téléchargés : {', '.join(failed_tickers)}.")
+
     return prices
 
 prices = load_prices(tickers, start)
 if prices.empty:
-    st.error("Aucune donnée de prix n'a pu être téléchargée. Vérifiez les tickers ou votre connexion Internet.")
+    st.error("Aucune donnée de prix n'a pu être téléchargée.")
     st.stop()
 
 # =====================
@@ -108,22 +155,20 @@ present = weights_raw[weights_raw.index.isin(prices.columns)]
 if not missing.empty:
     missing_pct = missing.sum() * 100
     st.warning(
-        f"⚠️ **{len(missing)} actif(s) exclus de la construction du portefeuille** "
-        f"(représentant {missing_pct:.1f}% de l'allocation cible) :\n"
+        f"⚠️ **{len(missing)} actif(s) exclus** (représentant {missing_pct:.1f}% de l'allocation) :\n"
         + "\n".join([f"- `{t}` ({w*100:.1f}%)" for t, w in missing.items()])
     )
 
 # Arrêt si plus de 20% de l'allocation est manquante
 if missing.sum() > 0.20:
-    st.error("Plus de 20% de l'allocation est manquante. Vérifiez les tickers des fonds.")
+    st.error("Plus de 20% de l'allocation est manquante.")
     st.stop()
 
 # Renormalisation des poids sur les actifs disponibles
-# Les poids sont simplement renormalisés pour faire 100% avec les actifs présents
 weights = present / present.sum()
 
 if weights.empty:
-    st.error("Aucun poids valide n'a pu être calculé. Vérifiez les tickers et les allocations.")
+    st.error("Aucun poids valide n'a pu être calculé.")
     st.stop()
 
 # Tableau de contrôle des poids effectifs
@@ -141,20 +186,6 @@ with st.expander("🔍 Vérification des poids effectifs du portefeuille"):
         "0P0000WHLW.F": "GemEquity R",
     }
 
-    # Vérification des actifs manquants
-    missing = weights_raw[~weights_raw.index.isin(prices.columns)]
-    present = weights_raw[weights_raw.index.isin(prices.columns)]
-
-    if not missing.empty:
-        st.warning(
-            f"⚠️ **{len(missing)} actif(s) exclus** (représentant {missing.sum()*100:.1f}% de l'allocation) :\n"
-            + "\n".join([f"- `{t}` ({allocation[t]*100:.1f}%)" for t in missing.index])
-        )
-
-    # Renormalisation des poids
-    weights = present / present.sum()
-
-    # Affichage des poids
     df_weights = pd.DataFrame({
         "Actif": [ticker_names_display.get(t, t) for t in weights.index],
         "Ticker": weights.index,
@@ -198,29 +229,21 @@ for t in usd_tickers:
             combined.columns = ['price', 'fx']
             prices_eur[t] = combined['price'] * (1 / combined['fx'])
         else:
-            st.warning(f"La structure des données pour {t} n'est pas celle attendue. Vérifiez les colonnes.")
+            st.warning(f"La structure des données pour {t} n'est pas celle attendue.")
 
 if prices_eur.empty:
     st.error("Aucune donnée de prix en EUR n'a pu être calculée.")
     st.stop()
 
-# Remplacer les valeurs manquantes dans prices_eur par la dernière valeur disponible (forward fill)
 prices_eur = prices_eur.ffill()
-
-# Calculer les rendements
 returns = prices_eur.pct_change().fillna(0)
 portfolio_returns = (returns * weights).sum(axis=1)
 portfolio_index = (1 + portfolio_returns).cumprod()
-if portfolio_index.empty:
-    st.error("Impossible de calculer l'indice du portefeuille.")
-    st.stop()
 
 # =====================
 # NAV portefeuille hedgé
 # =====================
 hedged_prices = prices.copy()
-
-# Traitement des actifs en USD pour le portefeuille hedgé
 for t in usd_tickers:
     if t in prices.columns:
         combined = pd.concat([prices[t], fx_series], axis=1, join='outer').ffill()
@@ -228,22 +251,16 @@ for t in usd_tickers:
             combined.columns = ['price', 'fx']
             hedged_prices[t] = combined['price']
         else:
-            st.warning(f"La structure des données pour {t} n'est pas celle attendue. Vérifiez les colonnes.")
+            st.warning(f"La structure des données pour {t} n'est pas celle attendue.")
 
 if hedged_prices.empty:
     st.error("Aucune donnée de prix hedgé n'a pu être calculée.")
     st.stop()
 
-# Remplacer les valeurs manquantes dans hedged_prices par la dernière valeur disponible (forward fill)
 hedged_prices = hedged_prices.ffill()
-
-# Calculer les rendements
 hedged_returns = hedged_prices.pct_change().fillna(0)
 portfolio_returns_hedged = (hedged_returns * weights).sum(axis=1)
 portfolio_index_hedged = (1 + portfolio_returns_hedged).cumprod()
-if portfolio_index_hedged.empty:
-    st.error("Impossible de calculer l'indice du portefeuille hedgé.")
-    st.stop()
 
 # =====================
 # Benchmark composite
@@ -251,11 +268,7 @@ if portfolio_index_hedged.empty:
 @st.cache_data(ttl=3600)
 def load_benchmark_composite(start):
     benchmark_weights = {
-        "IEV": 0.35,
-        "SPY": 0.20,
-        "TLT": 0.25,
-        "VNQ": 0.10,
-        "EEM": 0.05
+        "IEV": 0.35, "SPY": 0.20, "TLT": 0.25, "VNQ": 0.10, "EEM": 0.05
     }
     prices = pd.DataFrame()
     for ticker in benchmark_weights.keys():
@@ -290,29 +303,10 @@ bench_index = bench_index.loc[common_index]
 # Graphique principal
 # =====================
 fig = go.Figure()
-fig.add_trace(go.Scatter(
-    x=portfolio_index.index,
-    y=portfolio_index,
-    name="Portfolio",
-    line=dict(width=3, color='blue')
-))
-fig.add_trace(go.Scatter(
-    x=bench_index.index,
-    y=bench_index,
-    name="Benchmark composite",
-    line=dict(width=3, color='red')
-))
-fig.add_trace(go.Scatter(
-    x=portfolio_index_hedged.index,
-    y=portfolio_index_hedged,
-    name="Portfolio hedgé USD",
-    line=dict(width=3, dash="dot", color="green")
-))
-fig.update_layout(
-    height=600,
-    template="plotly_white",
-    title="Performance cumulée"
-)
+fig.add_trace(go.Scatter(x=portfolio_index.index, y=portfolio_index, name="Portfolio", line=dict(width=3, color='blue')))
+fig.add_trace(go.Scatter(x=bench_index.index, y=bench_index, name="Benchmark composite", line=dict(width=3, color='red')))
+fig.add_trace(go.Scatter(x=portfolio_index_hedged.index, y=portfolio_index_hedged, name="Portfolio hedgé USD", line=dict(width=3, dash="dot", color="green")))
+fig.update_layout(height=600, template="plotly_white", title="Performance cumulée")
 st.plotly_chart(fig, use_container_width=True)
 
 # =====================
@@ -320,20 +314,11 @@ st.plotly_chart(fig, use_container_width=True)
 # =====================
 st.subheader("🏆 Les 5 lignes les plus performantes sur le dernier mois")
 
-# Mapping noms lisibles
 ticker_names = {
-    "TTE.PA": "TotalEnergies",
-    "MC.PA": "LVMH",
-    "INGA.AS": "ING Group",
-    "SAP.DE": "SAP",
-    "ACLN.SW": "ACLN",
-    "THEON.AS": "Theon Intl",
-    "BOI.PA": "Boiron",
-    "EOAN.DE": "E.ON",
-    "GOOGL": "Alphabet",
-    "META": "Meta",
-    "HWM": "Howmet",
-    "AMZN": "Amazon",
+    "TTE.PA": "TotalEnergies", "MC.PA": "LVMH", "INGA.AS": "ING Group",
+    "SAP.DE": "SAP", "ACLN.SW": "ACLN", "THEON.AS": "Theon Intl",
+    "BOI.PA": "Boiron", "EOAN.DE": "E.ON", "GOOGL": "Alphabet",
+    "META": "Meta", "HWM": "Howmet", "AMZN": "Amazon",
     "0P0000ZWX4.F": "Helium Fund Perf A EUR",
     "0P0001861S.F": "Eleva Abs Ret Eurp S EUR",
     "0P00000M6C.F": "R-co Conviction Credit Euro",
@@ -342,21 +327,25 @@ ticker_names = {
     "0P0000WHLW.F": "GemEquity R",
 }
 
-# Filtrer les 30 derniers jours calendaires (≈ 1 mois)
+# Filtrer les 30 derniers jours calendaires
 month_start = prices_eur.index[-1] - timedelta(days=30)
-prices_month = prices_eur[prices_eur.index >= month_start]
-
-# Remplacer les valeurs manquantes par la dernière valeur disponible (forward fill)
-prices_month = prices_month.ffill()
+prices_month = prices_eur[prices_eur.index >= month_start].ffill()
 
 if len(prices_month) >= 2:
-    # Performance de chaque ligne sur le mois (premier prix dispo → dernier)
+    # Performance de chaque ligne sur le mois
     monthly_perf = (prices_month.iloc[-1] / prices_month.iloc[0] - 1) * 100
     monthly_perf = monthly_perf.dropna().sort_values(ascending=False)
+
+    # Inclure TTE.PA même s'il n'est pas dans le top 5
+    if "TTE.PA" in prices_month.columns:
+        tte_perf = (prices_month["TTE.PA"].iloc[-1] / prices_month["TTE.PA"].iloc[0] - 1) * 100
+        if "TTE.PA" not in monthly_perf.index:
+            monthly_perf["TTE.PA"] = tte_perf
+        monthly_perf = monthly_perf.sort_values(ascending=False)
+
     top5 = monthly_perf.head(5)
 
     col_bar, col_line = st.columns(2)
-
     top5_labels = [ticker_names.get(t, t) for t in top5.index]
 
     # --- Graphique barres ---
@@ -378,7 +367,7 @@ if len(prices_month) >= 2:
         )
         st.plotly_chart(fig_bar, use_container_width=True)
 
-    # --- Graphique lignes (évolution normalisée sur le mois) ---
+    # --- Graphique lignes ---
     with col_line:
         fig_line = go.Figure()
         for ticker in top5.index:
@@ -407,7 +396,7 @@ if len(prices_month) >= 2:
         "Actif": top5_labels,
         "Ticker": top5.index,
         "Performance mois": [f"{v:.2f}%" for v in top5.values],
-        "Poids dans le portefeuille": [f"{weights[t]*100:.1f}%" for t in top5.index if t in weights.index]
+        "Poids dans le portefeuille": [f"{weights.get(t, 0)*100:.1f}%" for t in top5.index]
     }).reset_index(drop=True)
     st.dataframe(df_top5, use_container_width=True)
 else:
@@ -424,16 +413,14 @@ Le benchmark composite reflète la structure multi-actifs du portefeuille :
 • 25% Obligations américaines à long terme → obligations
 • 10% Immobilier américain → immobilier
 • 5% MSCI Emerging Markets → actions émergentes
-Ce benchmark permet une comparaison plus réaliste qu'un indice actions pur.
 """)
+
 st.subheader("💱 Couverture FX USD")
 st.markdown("""
-Cette simulation couvre le risque de change des actions américaines (ex: META, GOOGL) en utilisant un **contrat forward** pour figer le taux EUR/USD.
-
+Cette simulation couvre le risque de change des actions américaines en utilisant un **contrat forward** pour figer le taux EUR/USD.
 **Formule appliquée :**
 Return hedgé = Return en USD − Variation du taux EUR/USD
-
-→ Cela neutralise l'impact des fluctuations du change, comme si vous aviez verrouillé le taux de change initial.
+→ Cela neutralise l'impact des fluctuations du change.
 *(Simplification : pas de coût de couverture inclus.)*
 """)
 
