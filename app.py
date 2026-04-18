@@ -117,7 +117,11 @@ if not missing.empty:
 if missing.sum() > 0.20:
     st.error("Plus de 20% de l'allocation est manquante. Vérifiez les tickers des fonds.")
     st.stop()
-
+if not missing.empty:
+    st.warning(
+        f"⚠️ **{len(missing)} actif(s) exclus** (représentant {missing.sum()*100:.1f}% de l'allocation) :\n"
+        + "\n".join([f"- `{t}` ({allocation[t]*100:.1f}%)" for t in missing.index])
+    )
 # Renormalisation des poids sur les actifs disponibles
 # Les poids sont simplement renormalisés pour faire 100% avec les actifs présents
 weights = present / present.sum()
