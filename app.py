@@ -140,10 +140,25 @@ with st.expander("🔍 Vérification des poids effectifs du portefeuille"):
         "0P0000A6ZG.F": "Immobilier 21 AC",
         "0P0000WHLW.F": "GemEquity R",
     }
+
+    # Vérification des actifs manquants
+    missing = weights_raw[~weights_raw.index.isin(prices.columns)]
+    present = weights_raw[weights_raw.index.isin(prices.columns)]
+
+    if not missing.empty:
+        st.warning(
+            f"⚠️ **{len(missing)} actif(s) exclus** (représentant {missing.sum()*100:.1f}% de l'allocation) :\n"
+            + "\n".join([f"- `{t}` ({allocation[t]*100:.1f}%)" for t in missing.index])
+        )
+
+    # Renormalisation des poids
+    weights = present / present.sum()
+
+    # Affichage des poids
     df_weights = pd.DataFrame({
         "Actif": [ticker_names_display.get(t, t) for t in weights.index],
         "Ticker": weights.index,
-        "Poids cible (avant exclusion)": [f"{allocation[t]*100:.1f}%" for t in weights.index],
+        "Poids cible": [f"{allocation[t]*100:.1f}%" for t in weights.index],
         "Poids effectif": [f"{w*100:.1f}%" for w in weights.values],
     }).reset_index(drop=True)
 
