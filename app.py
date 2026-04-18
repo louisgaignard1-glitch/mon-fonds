@@ -120,7 +120,7 @@ if missing.sum() > 0.20:
 
 # Renormalisation des poids sur les actifs disponibles
 # Les poids sont simplement renormalisés pour faire 100% avec les actifs présents
-weights = present
+weights = present / present.sum()
 
 if weights.empty:
     st.error("Aucun poids valide n'a pu être calculé. Vérifiez les tickers et les allocations.")
