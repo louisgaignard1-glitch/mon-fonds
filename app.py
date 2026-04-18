@@ -36,16 +36,15 @@ tickers = list(allocation.keys())
 start = st.sidebar.date_input("Start date", datetime(2020, 1, 1))
 
 # =====================
-# Chargement prix (avec solution de repli pour TTE.PA)
+# Chargement des prix (avec solutions de repli)
 # =====================
 @st.cache_data(ttl=3600)
 def download_single_ticker(ticker, start, max_retries=3):
-    """Télécharge un ticker avec plusieurs tentatives, solution de repli pour TTE.PA"""
+    """Télécharge un ticker avec plusieurs tentatives et solutions de repli."""
     if ticker == "TTE.PA":
-        # Tentative spécifique pour TTE.PA (TotalEnergies)
+        # Tentatives spécifiques pour TTE.PA
         for attempt in range(max_retries):
             try:
-                # Méthode 1: yf.download
                 tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
                 if not tmp.empty:
                     return tmp
@@ -53,7 +52,6 @@ def download_single_ticker(ticker, start, max_retries=3):
                 pass
 
             try:
-                # Méthode 2: yf.Ticker().history()
                 ticker_obj = yf.Ticker(ticker)
                 tmp = ticker_obj.history(start=start)
                 if not tmp.empty:
@@ -62,7 +60,7 @@ def download_single_ticker(ticker, start, max_retries=3):
                 pass
 
             try:
-                # Méthode 3: Utiliser le ticker alternatif "FP.PA" (TotalEnergies)
+                # Solution de repli : utiliser FP.PA (TotalEnergies)
                 tmp = yf.download("FP.PA", start=start, auto_adjust=False, progress=False)
                 if not tmp.empty:
                     return tmp
@@ -70,7 +68,7 @@ def download_single_ticker(ticker, start, max_retries=3):
                 pass
 
     else:
-        # Méthode standard pour les autres tickers
+        # Tentatives standard pour les autres tickers
         for attempt in range(max_retries):
             try:
                 tmp = yf.download(ticker, start=start, auto_adjust=False, progress=False)
@@ -87,6 +85,7 @@ def download_single_ticker(ticker, start, max_retries=3):
             except:
                 pass
 
+    # Si tout échoue, retourner un DataFrame vide
     return pd.DataFrame()
 
 @st.cache_data(ttl=3600)
@@ -94,84 +93,51 @@ def load_prices(tickers, start):
     prices = pd.DataFrame()
     failed_tickers = []
 
-    # Téléchargement des données pour chaque ticker
     for t in tickers:
-        try:
-            tmp = download_single_ticker(t, start)
-            if tmp.empty:
-                failed_tickers.append(t)
-                continue
-
+        tmp = download_single_ticker(t, start)
+        if tmp.empty:
+            failed_tickers.append(t)
+            # Créer une série vide pour l'actif manquant (remplie plus tard)
+            prices[t] = np.nan
+        else:
             if isinstance(tmp.columns, pd.MultiIndex):
                 tmp.columns = tmp.columns.get_level_values(0)
-
             if "Adj Close" in tmp.columns:
                 prices[t] = tmp["Adj Close"]
             elif "Close" in tmp.columns:
                 prices[t] = tmp["Close"]
-            else:
-                failed_tickers.append(t)
 
-        except Exception as e:
-            st.write(f"Erreur lors du téléchargement des données pour {t}: {e}")
-            failed_tickers.append(t)
+    # Remplir les valeurs manquantes avec la dernière valeur disponible (forward fill)
+    prices = prices.ffill()
 
-    # Vérification spécifique pour TTE.PA
-    if "TTE.PA" in failed_tickers:
-        st.warning("TTE.PA n'a pas pu être téléchargé directement. Tentative avec FP.PA (TotalEnergies)...")
-        try:
-            tmp = yf.download("FP.PA", start=start, auto_adjust=False, progress=False)
-            if not tmp.empty:
-                if isinstance(tmp.columns, pd.MultiIndex):
-                    tmp.columns = tmp.columns.get_level_values(0)
-                if "Adj Close" in tmp.columns:
-                    prices["TTE.PA"] = tmp["Adj Close"]
-                elif "Close" in tmp.columns:
-                    prices["TTE.PA"] = tmp["Close"]
-                failed_tickers.remove("TTE.PA")
-                st.success("TTE.PA a été récupéré avec succès via FP.PA !")
-        except Exception as e:
-            st.error(f"Échec de la récupération de TTE.PA via FP.PA: {e}")
+    if not failed_tickers:
+        st.success("Tous les actifs ont été téléchargés avec succès !")
+    else:
+        st.warning(f"Les tickers suivants n'ont pas pu être téléchargés : {', '.join(failed_tickers)}. Leurs poids seront conservés, mais leurs performances seront nulles.")
 
-    if failed_tickers:
-        st.warning(f"Les tickers suivants n'ont pas pu être téléchargés : {', '.join(failed_tickers)}.")
+    return prices, failed_tickers
 
-    return prices
-
-prices = load_prices(tickers, start)
+prices, failed_tickers = load_prices(tickers, start)
 if prices.empty:
     st.error("Aucune donnée de prix n'a pu être téléchargée.")
     st.stop()
 
 # =====================
-# Construction portefeuille
+# Construction portefeuille (sans renormalisation)
 # =====================
-weights_raw = pd.Series(allocation)
+weights = pd.Series(allocation)  # Poids effectifs = poids cibles
 
-# Identifier les actifs manquants (non téléchargés)
-missing = weights_raw[~weights_raw.index.isin(prices.columns)]
-present = weights_raw[weights_raw.index.isin(prices.columns)]
-
-if not missing.empty:
-    missing_pct = missing.sum() * 100
+# Afficher les actifs manquants
+if failed_tickers:
+    missing_pct = sum(allocation[t] for t in failed_tickers) * 100
     st.warning(
-        f"⚠️ **{len(missing)} actif(s) exclus** (représentant {missing_pct:.1f}% de l'allocation) :\n"
-        + "\n".join([f"- `{t}` ({w*100:.1f}%)" for t, w in missing.items()])
+        f"⚠️ **{len(failed_tickers)} actif(s) non téléchargé(s)** (représentant {missing_pct:.1f}% de l'allocation) :\n"
+        + "\n".join([f"- `{t}` ({allocation[t]*100:.1f}%)" for t in failed_tickers])
     )
 
-# Arrêt si plus de 20% de l'allocation est manquante
-if missing.sum() > 0.20:
-    st.error("Plus de 20% de l'allocation est manquante.")
-    st.stop()
-
-# Renormalisation des poids sur les actifs disponibles
-weights = present / present.sum()
-
-if weights.empty:
-    st.error("Aucun poids valide n'a pu être calculé.")
-    st.stop()
-
-# Tableau de contrôle des poids effectifs
+# =====================
+# Tableau de contrôle des poids
+# =====================
 with st.expander("🔍 Vérification des poids effectifs du portefeuille"):
     ticker_names_display = {
         "TTE.PA": "TotalEnergies", "MC.PA": "LVMH", "INGA.AS": "ING Groep",
@@ -189,15 +155,13 @@ with st.expander("🔍 Vérification des poids effectifs du portefeuille"):
     df_weights = pd.DataFrame({
         "Actif": [ticker_names_display.get(t, t) for t in weights.index],
         "Ticker": weights.index,
-        "Poids cible": [f"{allocation[t]*100:.1f}%" for t in weights.index],
-        "Poids effectif": [f"{w*100:.1f}%" for w in weights.values],
+        "Poids cible": [f"{weights[t]*100:.1f}%" for t in weights.index],
+        "Statut": ["✅ Disponible" if t not in failed_tickers else "❌ Non téléchargé" for t in weights.index],
     }).reset_index(drop=True)
 
     st.dataframe(df_weights, use_container_width=True)
     total_effectif = weights.sum() * 100
-    st.caption(f"Total poids effectif : {total_effectif:.1f}%")
-
-usd_tickers = ["GOOGL", "META", "HWM", "AMZN"]
+    st.caption(f"Total poids effectif : {total_effectif:.1f}% (identique aux poids cibles)")
 
 # =====================
 # Télécharger EUR/USD
@@ -222,20 +186,18 @@ fx_series.index = pd.to_datetime(fx_series.index)
 prices_eur = prices.copy()
 
 # Conversion des actifs en USD en EUR
+usd_tickers = ["GOOGL", "META", "HWM", "AMZN"]
 for t in usd_tickers:
-    if t in prices.columns:
+    if t in prices.columns and t not in failed_tickers:
         combined = pd.concat([prices[t], fx_series], axis=1, join='inner').ffill()
         if len(combined.columns) == 2:
             combined.columns = ['price', 'fx']
             prices_eur[t] = combined['price'] * (1 / combined['fx'])
-        else:
-            st.warning(f"La structure des données pour {t} n'est pas celle attendue.")
 
-if prices_eur.empty:
-    st.error("Aucune donnée de prix en EUR n'a pu être calculée.")
-    st.stop()
-
+# Remplir les valeurs manquantes avec la dernière valeur disponible
 prices_eur = prices_eur.ffill()
+
+# Calculer les rendements (0% pour les actifs manquants)
 returns = prices_eur.pct_change().fillna(0)
 portfolio_returns = (returns * weights).sum(axis=1)
 portfolio_index = (1 + portfolio_returns).cumprod()
@@ -245,17 +207,11 @@ portfolio_index = (1 + portfolio_returns).cumprod()
 # =====================
 hedged_prices = prices.copy()
 for t in usd_tickers:
-    if t in prices.columns:
+    if t in prices.columns and t not in failed_tickers:
         combined = pd.concat([prices[t], fx_series], axis=1, join='outer').ffill()
         if len(combined.columns) == 2:
             combined.columns = ['price', 'fx']
             hedged_prices[t] = combined['price']
-        else:
-            st.warning(f"La structure des données pour {t} n'est pas celle attendue.")
-
-if hedged_prices.empty:
-    st.error("Aucune donnée de prix hedgé n'a pu être calculée.")
-    st.stop()
 
 hedged_prices = hedged_prices.ffill()
 hedged_returns = hedged_prices.pct_change().fillna(0)
@@ -332,17 +288,15 @@ month_start = prices_eur.index[-1] - timedelta(days=30)
 prices_month = prices_eur[prices_eur.index >= month_start].ffill()
 
 if len(prices_month) >= 2:
-    # Performance de chaque ligne sur le mois
-    monthly_perf = (prices_month.iloc[-1] / prices_month.iloc[0] - 1) * 100
-    monthly_perf = monthly_perf.dropna().sort_values(ascending=False)
+    # Performance de chaque ligne sur le mois (0% pour les actifs manquants)
+    monthly_perf = {}
+    for t in prices_month.columns:
+        if t in failed_tickers:
+            monthly_perf[t] = 0.0  # Performance nulle pour les actifs manquants
+        else:
+            monthly_perf[t] = (prices_month[t].iloc[-1] / prices_month[t].iloc[0] - 1) * 100
 
-    # Inclure TTE.PA même s'il n'est pas dans le top 5
-    if "TTE.PA" in prices_month.columns:
-        tte_perf = (prices_month["TTE.PA"].iloc[-1] / prices_month["TTE.PA"].iloc[0] - 1) * 100
-        if "TTE.PA" not in monthly_perf.index:
-            monthly_perf["TTE.PA"] = tte_perf
-        monthly_perf = monthly_perf.sort_values(ascending=False)
-
+    monthly_perf = pd.Series(monthly_perf).sort_values(ascending=False)
     top5 = monthly_perf.head(5)
 
     col_bar, col_line = st.columns(2)
@@ -396,7 +350,8 @@ if len(prices_month) >= 2:
         "Actif": top5_labels,
         "Ticker": top5.index,
         "Performance mois": [f"{v:.2f}%" for v in top5.values],
-        "Poids dans le portefeuille": [f"{weights.get(t, 0)*100:.1f}%" for t in top5.index]
+        "Poids dans le portefeuille": [f"{weights[t]*100:.1f}%" for t in top5.index],
+        "Statut": ["✅ Disponible" if t not in failed_tickers else "❌ Non téléchargé" for t in top5.index]
     }).reset_index(drop=True)
     st.dataframe(df_top5, use_container_width=True)
 else:
