@@ -189,7 +189,11 @@ prices_eur = prices.copy()
 usd_tickers = ["GOOGL", "META", "HWM", "AMZN"]
 for t in usd_tickers:
     if t in prices.columns and t not in failed_tickers:
-        combined = pd.concat([prices[t], fx_series], axis=1, join='inner').ffill()
+        combined = pd.concat(
+            [prices[t].sort_index().drop_duplicates(), fx_series.sort_index().drop_duplicates()],
+            axis=1,
+            join='inner'
+        ).ffill()
         if len(combined.columns) == 2:
             combined.columns = ['price', 'fx']
             prices_eur[t] = combined['price'] * (1 / combined['fx'])
