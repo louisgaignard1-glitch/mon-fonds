@@ -212,7 +212,11 @@ portfolio_index = (1 + portfolio_returns).cumprod()
 hedged_prices = prices.copy()
 for t in usd_tickers:
     if t in prices.columns and t not in failed_tickers:
-        combined = pd.concat([prices[t], fx_series], axis=1, join='outer').ffill()
+        combined = pd.concat(
+            [prices[t].sort_index().drop_duplicates(), fx_series.sort_index().drop_duplicates()],
+            axis=1,
+            join='outer'
+        ).ffill()
         if len(combined.columns) == 2:
             combined.columns = ['price', 'fx']
             hedged_prices[t] = combined['price']
