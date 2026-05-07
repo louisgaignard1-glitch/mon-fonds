@@ -97,8 +97,8 @@ def load_prices(tickers, start):
         tmp = download_single_ticker(t, start)
         if tmp.empty:
             failed_tickers.append(t)
-            # Créer une série vide pour l'actif manquant (remplie plus tard)
-            prices[t] = np.nan
+            # ✅ Crée une série avec un DatetimeIndex vide (compatible avec fx_series)
+prices[t] = pd.Series(dtype=float, index=pd.DatetimeIndex([]))
         else:
             if isinstance(tmp.columns, pd.MultiIndex):
                 tmp.columns = tmp.columns.get_level_values(0)
