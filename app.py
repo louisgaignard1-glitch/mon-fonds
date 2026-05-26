@@ -284,10 +284,8 @@ ticker_names = {
     "0P0000A6ZG.F": "Immobilier 21 AC",
     "0P0000WHLW.F": "GemEquity R",
 }
-
 month_start = prices_eur.index[-1] - timedelta(days=30)
 prices_month = prices_eur[prices_eur.index >= month_start].ffill()
-
 if len(prices_month) >= 2:
     monthly_perf = {}
     for t in prices_month.columns:
@@ -297,16 +295,15 @@ if len(prices_month) >= 2:
             monthly_perf[t] = (prices_month[t].iloc[-1] / prices_month[t].iloc[0] - 1) * 100
     monthly_perf = pd.Series(monthly_perf).sort_values(ascending=False)
     top5 = monthly_perf.head(5)
-
     col_bar, col_line = st.columns(2)
     top5_labels = [ticker_names.get(t, t) for t in top5.index]
-
     with col_bar:
-        colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in top5.values]
+        # CORRECTION ICI : Changement de 'colors' en 'bar_colors'
+        bar_colors = ['#2ecc71' if v >= 0 else '#e74c3c' for v in top5.values]
         fig_bar = go.Figure(go.Bar(
             x=top5_labels,
             y=top5.values,
-            marker_color=colors,
+            marker_color=bar_colors,  # CORRECTION ICI
             text=[f"{v:.2f}%" for v in top5.values],
             textposition='outside'
         ))
@@ -318,7 +315,6 @@ if len(prices_month) >= 2:
             showlegend=False
         )
         st.plotly_chart(fig_bar, use_container_width=True)
-
     with col_line:
         fig_line = go.Figure()
         for ticker in top5.index:
@@ -340,7 +336,6 @@ if len(prices_month) >= 2:
             height=400
         )
         st.plotly_chart(fig_line, use_container_width=True)
-
     st.markdown("**Détail du Top 5**")
     df_top5 = pd.DataFrame({
         "Actif": top5_labels,
@@ -352,7 +347,6 @@ if len(prices_month) >= 2:
     st.dataframe(df_top5, use_container_width=True)
 else:
     st.warning("Pas assez de données disponibles pour calculer le top 5 mensuel.")
-
 # =====================
 # Texte explicatif
 # =====================
