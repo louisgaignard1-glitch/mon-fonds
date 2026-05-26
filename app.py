@@ -197,26 +197,25 @@ portfolio_returns = (returns * weights).sum(axis=1)
 portfolio_index = (1 + portfolio_returns).cumprod()
 
 # =====================
-# NAV portefeuille hedgé
+# NAV portefeuille hedgé (CORRIGÉ)
 # =====================
-hedged_prices = prices.copy()
+hedged_returns = returns.copy() # On part des rendements en EUR de base
+
 for t in usd_tickers:
     if t in prices.columns and t not in failed_tickers:
-        prices_t = prices[t].copy()
-        prices_t.index = pd.to_datetime(prices_t.index)
-        prices_t = prices_t.sort_index().drop_duplicates()
+        # 1. Rendement de l'actif en USD pur
+        asset_ret_usd = prices[t].pct_change().fillna(0)
+        
+        # 2. Rendement de la devise EUR/USD
+        fx_ret = fx_series.pct_change().fillna(0)
+        
+        # Alignement des index pour éviter les décalages
+        combined_ret = pd.DataFrame({'asset': asset_ret_usd, 'fx': fx_ret}).ffill().fillna(0)
+        
+        # 3. Formule du Hedge : Rendement USD - Rendement FX (ou ajustement exact)
+        # Rendement contractuel de la couverture
+        hedged_returns[t] = combined_ret['asset'] - combined_ret['fx']
 
-        combined = pd.concat(
-            [prices_t, fx_series],
-            axis=1,
-            join='outer'
-        ).ffill()
-        if len(combined.columns) == 2:
-            combined.columns = ['price', 'fx']
-            hedged_prices[t] = combined['price']
-
-hedged_prices = hedged_prices.ffill()
-hedged_returns = hedged_prices.pct_change().fillna(0)
 portfolio_returns_hedged = (hedged_returns * weights).sum(axis=1)
 portfolio_index_hedged = (1 + portfolio_returns_hedged).cumprod()
 
