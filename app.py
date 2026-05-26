@@ -57,11 +57,11 @@ def download_single_ticker(ticker, start, max_retries=3):
             except:
                 pass
             try:
-                tmp = yf.download("FP.PA", start=start, auto_adjust=False, progress=False)
-                if not tmp.empty:
-                    return tmp
+                 tmp = yf.download("FP.PA", start=start, auto_adjust=False, progress=False)
+           if not tmp.empty:
+        return tmp # <- Si tu retournes tmp ici, son nom de colonne/série sera "FP.PA"
             except:
-                pass
+               pass
     else:
         for attempt in range(max_retries):
             try:
